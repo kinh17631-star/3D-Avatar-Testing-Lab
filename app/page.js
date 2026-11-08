@@ -1,11 +1,13 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
+
+const DEFAULT_AVATAR = "/models/anime_girl%202.glb";
 
 function AvatarModel({ url, motionMode, onInspect }) {
   const { scene, animations } = useGLTF(url);
@@ -54,17 +56,13 @@ function AvatarModel({ url, motionMode, onInspect }) {
     let meshCount = 0;
     let skinnedMeshCount = 0;
     let morphTargetCount = 0;
+
     const materials = new Set();
     const textures = new Set();
 
     model.traverse((object) => {
-      if (object.isMesh) {
-        meshCount++;
-      }
-
-      if (object.isSkinnedMesh) {
-        skinnedMeshCount++;
-      }
+      if (object.isMesh) meshCount++;
+      if (object.isSkinnedMesh) skinnedMeshCount++;
 
       if (object.morphTargetDictionary) {
         morphTargetCount += Object.keys(
@@ -91,22 +89,6 @@ function AvatarModel({ url, motionMode, onInspect }) {
 
     const boneNames = bones.map((item) => item.name);
 
-    const hasHead = boneNames.some((name) =>
-      /head|neck/i.test(name)
-    );
-
-    const hasArms = boneNames.some((name) =>
-      /arm|shoulder/i.test(name)
-    );
-
-    const hasJaw = boneNames.some((name) =>
-      /jaw/i.test(name)
-    );
-
-    const hasBlink = bones.some((item) =>
-      /eyelid|eye.?lid/i.test(item.name)
-    );
-
     onInspect({
       bones: bones.length,
       boneNames,
@@ -116,10 +98,10 @@ function AvatarModel({ url, motionMode, onInspect }) {
       textures: textures.size,
       morphTargets: morphTargetCount,
       animations: animations.length,
-      hasHead,
-      hasArms,
-      hasJaw,
-      hasBlink
+      hasHead: boneNames.some((name) => /head|neck/i.test(name)),
+      hasArms: boneNames.some((name) => /arm|shoulder/i.test(name)),
+      hasJaw: boneNames.some((name) => /jaw/i.test(name)),
+      hasBlink: boneNames.some((name) => /eyelid|eye.?lid/i.test(name))
     });
   }, [model, bones, animations, onInspect]);
 
@@ -131,10 +113,7 @@ function AvatarModel({ url, motionMode, onInspect }) {
 
       if (!motionMode) return;
 
-      if (
-        motionMode === "head" &&
-        /head|neck/i.test(name)
-      ) {
+      if (motionMode === "head" && /head|neck/i.test(name)) {
         bone.rotation.y =
           initial.y + Math.sin(time * 1.5) * 0.3;
       }
@@ -147,10 +126,7 @@ function AvatarModel({ url, motionMode, onInspect }) {
           initial.x + Math.sin(time * 2) * 0.3;
       }
 
-      if (
-        motionMode === "body" &&
-        /spine|pelvis|hips/i.test(name)
-      ) {
+      if (motionMode === "body" && /spine|pelvis|hips/i.test(name)) {
         bone.rotation.y =
           initial.y + Math.sin(time * 1.5) * 0.15;
       }
@@ -170,23 +146,16 @@ function Viewer({ url, motionMode, onInspect }) {
 
       <ambientLight intensity={1.5} />
 
-      <directionalLight
-        position={[4, 6, 5]}
-        intensity={2}
-      />
+      <directionalLight position={[4, 6, 5]} intensity={2} />
+      <directionalLight position={[-4, 3, -3]} intensity={1} />
 
-      <directionalLight
-        position={[-4, 3, -3]}
-        intensity={1}
-      />
-
-      <React.Suspense fallback={null}>
+      <Suspense fallback={null}>
         <AvatarModel
           url={url}
           motionMode={motionMode}
           onInspect={onInspect}
         />
-      </React.Suspense>
+      </Suspense>
 
       <OrbitControls
         enableDamping
@@ -198,18 +167,16 @@ function Viewer({ url, motionMode, onInspect }) {
   );
 }
 
-import React from "react";
-
 export default function Home() {
-  const [avatarUrl, setAvatarUrl] = useState(null);
-  const [avatarName, setAvatarName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(DEFAULT_AVATAR);
+  const [avatarName, setAvatarName] = useState("anime_girl 2.glb");
   const [motionMode, setMotionMode] = useState(null);
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     return () => {
-      if (avatarUrl) {
+      if (avatarUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(avatarUrl);
       }
     };
@@ -225,25 +192,24 @@ export default function Home() {
       return;
     }
 
-    if (avatarUrl) {
-      URL.revokeObjectURL(avatarUrl);
-    }
-
     setError("");
     setStats(null);
     setMotionMode(null);
     setAvatarName(file.name);
     setAvatarUrl(URL.createObjectURL(file));
+
+    event.target.value = "";
   };
 
-  const handleInspect = (data) => {
+  const handleInspect = useCallback((data) => {
     setStats(data);
-  };
+  }, []);
 
   return (
     <main className="lab">
       <header className="header">
         <div className="brand">Your 3D Avatar Testing Lab</div>
+
         <label className="uploadButton">
           Upload GLB
           <input
@@ -257,27 +223,17 @@ export default function Home() {
 
       <section className="workspace">
         <div className="viewer">
-          {avatarUrl ? (
-            <Viewer
-              url={avatarUrl}
-              motionMode={motionMode}
-              onInspect={handleInspect}
-            />
-          ) : (
-            <div className="empty">
-              <div className="emptyIcon">3D</div>
-              <h2>Your avatar will appear here</h2>
-              <p>Upload a GLB character to begin testing.</p>
-            </div>
-          )}
+          <Viewer
+            url={avatarUrl}
+            motionMode={motionMode}
+            onInspect={handleInspect}
+          />
         </div>
 
         <aside className="panel">
           <h2>Testing Controls</h2>
 
-          <div className="fileName">
-            {avatarName || "No avatar selected"}
-          </div>
+          <div className="fileName">{avatarName}</div>
 
           <h3>Body Movement</h3>
 
@@ -286,9 +242,7 @@ export default function Home() {
               disabled={!stats?.hasHead}
               className={motionMode === "head" ? "active" : ""}
               onClick={() =>
-                setMotionMode(
-                  motionMode === "head" ? null : "head"
-                )
+                setMotionMode(motionMode === "head" ? null : "head")
               }
             >
               Head Movement
@@ -298,9 +252,7 @@ export default function Home() {
               disabled={!stats?.hasArms}
               className={motionMode === "arms" ? "active" : ""}
               onClick={() =>
-                setMotionMode(
-                  motionMode === "arms" ? null : "arms"
-                )
+                setMotionMode(motionMode === "arms" ? null : "arms")
               }
             >
               Arm Movement
@@ -310,9 +262,7 @@ export default function Home() {
               disabled={!stats}
               className={motionMode === "body" ? "active" : ""}
               onClick={() =>
-                setMotionMode(
-                  motionMode === "body" ? null : "body"
-                )
+                setMotionMode(motionMode === "body" ? null : "body")
               }
             >
               Body Movement
@@ -330,9 +280,7 @@ export default function Home() {
           <h3>Model Inspection</h3>
 
           {!stats ? (
-            <p className="muted">
-              Upload a character to inspect its data.
-            </p>
+            <p className="muted">Loading avatar information...</p>
           ) : (
             <div className="stats">
               <div><span>Bones</span><b>{stats.bones}</b></div>
@@ -442,41 +390,6 @@ export default function Home() {
           background: #111827;
         }
 
-        .empty {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          padding: 20px;
-          color: #cbd5e1;
-        }
-
-        .emptyIcon {
-          width: 70px;
-          height: 70px;
-          border-radius: 20px;
-          display: grid;
-          place-items: center;
-          background: #252344;
-          color: #c4b5fd;
-          font-size: 25px;
-          font-weight: 800;
-          margin-bottom: 18px;
-        }
-
-        .empty h2 {
-          font-size: 20px;
-          margin-bottom: 8px;
-        }
-
-        .empty p,
-        .muted {
-          color: #94a3b8;
-          font-size: 13px;
-        }
-
         .panel {
           padding: 22px;
           border: 1px solid #293044;
@@ -578,6 +491,11 @@ export default function Home() {
           color: #cbd5e1;
           line-height: 1.9;
           overflow-wrap: anywhere;
+        }
+
+        .muted {
+          color: #94a3b8;
+          font-size: 13px;
         }
 
         .error {
